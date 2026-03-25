@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+
+# Database
+*.db
+
+# Uploads
+uploads/
+submissions/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
+
+# Old directories (kept for reference, not deployed)
+backend/
+frontend/

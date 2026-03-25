@@ -4,80 +4,111 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-HumanCurated Virtual Staging — a full-stack web app for Mile High Labs AI that lets authenticated users upload property images and descriptions for virtual staging services, with portfolio galleries showcasing before/after results.
+HumanCurated Virtual Staging — a full-stack web app for Mile High Labs AI that lets authenticated users upload property images and descriptions for virtual staging services, with portfolio galleries showcasing before/after results. Deployed as a single Vercel project.
 
 ## Development Commands
 
 ```bash
-# Backend (terminal 1) — use PYTHONUNBUFFERED=1 for real-time logs
-cd backend
-PYTHONUNBUFFERED=1 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# Install frontend deps (from project root)
+npm install
 
-# Frontend (terminal 2)
-cd frontend
+# Frontend dev server (from project root)
 npm run dev
 
-# Install backend deps
-cd backend && pip install -r requirements.txt
+# Backend dev server (from project root — runs the FastAPI app in api/)
+PYTHONUNBUFFERED=1 python -m uvicorn api.index:app --host 127.0.0.1 --port 8000 --reload
 
-# Install frontend deps
-cd frontend && npm install
+# Install Python deps
+pip install -r requirements.txt
 
 # Build frontend for production
-cd frontend && npm run build
+npm run build
 
-# Preview production build locally
-cd frontend && npm run preview
-
-# Kill stale Python processes hogging port 8000 (Windows)
-taskkill //F //IM python3.11.exe
+# Deploy to Vercel
+vercel --prod
 ```
 
 - **Frontend**: http://localhost:3000 (open this in browser)
-- **Backend API**: http://localhost:8000 (JSON API only, not a website)
-- **Debug endpoint**: http://localhost:8000/api/debug/env (verify env vars loaded)
-- Vite proxies `/api` and `/portfolio-images` to the backend
+- **Backend API**: http://localhost:8000 (JSON API only)
+- **Health check**: http://localhost:8000/api/health
+- **Debug endpoint**: http://localhost:8000/api/debug/env
+- Vite proxies `/api` and `/portfolio-images` to backend in dev mode
 
 ## Tech Stack
 
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy + SQLite, bcrypt, python-jose (JWT), openpyxl, aiosmtplib, gspread + google-auth
+- **Backend**: Python 3.11, FastAPI (Vercel Serverless Functions), SQLAlchemy + SQLite, bcrypt, python-jose (JWT), openpyxl, aiosmtplib
 - **Frontend**: React 19, Vite 8, Tailwind CSS v4 (via `@tailwindcss/vite` plugin), React Router, Axios
-- **No test framework or linter** is configured for either backend or frontend
+- **Deployment**: Vercel (single deployment — static frontend + Python serverless API)
+- **No test framework or linter** is configured
 - **Fonts**: Inter (sans), Playfair Display (serif) — loaded from Google Fonts in index.html
+
+## Project Structure (Vercel-optimized)
+
+```
+root/
+├── api/                      # Python serverless functions (Vercel)
+│   ├── index.py              # FastAPI app entry point
+│   ├── _db.py                # SQLAlchemy + SQLite setup
+│   ├── _models.py            # User model
+│   ├── _auth.py              # Auth router (signup/login/forgot/reset)
+│   ├── _submissions.py       # Metadata submission (text only, no files)
+│   ├── _portfolio.py         # Portfolio router
+│   ├── _email_service.py     # SMTP email service
+│   └── _excel_service.py     # Google Sheets webhook + local Excel fallback
+├── src/                      # React source
+│   ├── App.jsx               # Router + auth state
+│   ├── api/client.js         # Axios instance with JWT interceptor
+│   ├── services/driveUpload.js # Direct browser-to-Google-Drive upload
+│   ├── pages/                # Login, Signup, ForgotPassword, LandingPage, gallery wrappers
+│   ├── components/           # Navbar, Hero, ImageUpload, Portfolio, GalleryPage, Testimonials, Footer
+│   └── styles/globals.css    # Tailwind v4 theme config
+├── public/                   # Static assets (QR code, etc.)
+├── index.html                # Vite entry
+├── package.json              # Frontend deps + build scripts
+├── vite.config.js            # Vite config (dev proxy for localhost)
+├── requirements.txt          # Python deps (for Vercel + local)
+└── vercel.json               # Vercel build + routing config
+```
+
+Files prefixed with `_` in `api/` are helper modules — Vercel does NOT expose them as endpoints.
 
 ## Architecture
 
-### Backend (`backend/`)
+### Vercel Deployment
 
-| Layer | File | Purpose |
-|-------|------|---------|
-| Entry | `main.py` | FastAPI app, CORS, router mounts, static file serving for `/uploads` and `/portfolio-images` |
-| Auth | `routers/auth.py` | Signup, login, forgot/reset password (6-digit code, 60s expiry, in-memory store) |
-| Submissions | `routers/submissions.py` | Authenticated image upload (max 3, JPG/PNG, 10MB each) + description (3500 char) |
-| Portfolio | `portfolio/portfolio_router.py` | Serves before/after image pairs from external source folders |
-| File Service | `services/file_service.py` | Saves images locally + uploads base64 to Google Drive via Apps Script webhook |
-| Excel Service | `services/excel_service.py` | Posts metadata to Google Sheets via Apps Script webhook; falls back to local Excel |
-| Email Service | `services/email_service.py` | Sends password reset codes via SMTP (gracefully skips if unconfigured) |
-| Database | `database.py` | SQLAlchemy + SQLite (`humancurated.db`), auto-creates tables on startup |
-| Model | `models/user.py` | User table: id, full_name, email (unique), hashed_password, created_at |
+- `vercel.json` configures two builds: `@vercel/static-build` for the React frontend, `@vercel/python` for the FastAPI API
+- All `/api/*` requests route to `api/index.py` (FastAPI handles sub-routing)
+- Everything else serves the static SPA build
 
-### Frontend (`frontend/src/`)
+### Backend (`api/`)
 
-| Layer | File | Purpose |
-|-------|------|---------|
-| Entry | `App.jsx` | React Router: `/login`, `/signup`, `/forgot-password`, `/` (protected), `/portfolio/:category` |
-| API | `api/client.js` | Axios instance; auto-injects Bearer token from localStorage; 401 interceptor clears token and redirects |
-| Styles | `styles/globals.css` | Tailwind v4 `@theme` config: custom colors (primary/blue, accent/purple, warm/amber), fonts, animations |
-| Main page | `pages/LandingPage.jsx` | Composes Navbar + Hero + ImageUpload + Portfolio + Testimonials + Footer; handles form submission |
-| Auth pages | `pages/LoginPage.jsx`, `SignupPage.jsx`, `ForgotPassword.jsx` | Login/signup forms; forgot-password is a 3-step wizard |
-| Gallery | `components/GalleryPage.jsx` | Fetches `/api/portfolio/{category}`, renders ComparisonSlider (draggable before/after) |
-| Portfolio nav | `pages/EmptyToStaged.jsx`, `StagedToStaged.jsx`, `Renovation.jsx` | Thin wrappers passing category to GalleryPage |
+| File | Purpose |
+|------|---------|
+| `index.py` | FastAPI app, CORS, router mounts, .env loading (local dev), static file serving (local dev only) |
+| `_auth.py` | Signup, login, forgot/reset password (6-digit code, 60s expiry, in-memory store) |
+| `_submissions.py` | Accepts description (text only), saves to Google Sheets, returns Drive webhook URL for frontend to upload images directly |
+| `_portfolio.py` | Serves before/after image pairs from source folders (local dev) or returns empty (Vercel) |
+| `_excel_service.py` | Posts metadata to Google Sheets via Apps Script webhook; falls back to local Excel |
+| `_email_service.py` | Sends password reset codes via SMTP (gracefully skips if unconfigured) |
+| `_db.py` | SQLAlchemy + SQLite (`/tmp/humancurated.db` on Vercel, `./humancurated.db` locally) |
+| `_models.py` | User table: id, full_name, email (unique), hashed_password, created_at |
+
+### Frontend (`src/`)
+
+| File | Purpose |
+|------|---------|
+| `App.jsx` | React Router: `/login`, `/signup`, `/forgot-password`, `/` (protected), `/portfolio/*` |
+| `api/client.js` | Axios instance; auto-injects Bearer token from localStorage; 401 interceptor |
+| `services/driveUpload.js` | Reads files as base64, POSTs directly to Google Drive Apps Script (one image at a time), shows per-image progress |
+| `styles/globals.css` | Tailwind v4 `@theme` config: custom colors (primary/blue, accent/purple, warm/amber), fonts, animations |
 
 ### Data Flow
 
-**Submission pipeline**: User uploads images + description → backend validates JWT → saves files to `./uploads/{username}_{timestamp}/` → base64 encodes and POSTs to Google Drive Apps Script → GETs Google Sheets Apps Script with name/email/description params → falls back to local Excel on webhook failure.
+**Submission pipeline (2-step)**:
+1. **Metadata** (browser → Vercel API → Google Sheets): Frontend sends `{ description }` to `POST /api/submissions/submit`. Backend verifies JWT, saves name/email/description to Google Sheets via webhook, returns `{ gdrive_webhook_url, username }`.
+2. **Images** (browser → Google Drive directly): Frontend reads each image as base64, POSTs directly to the Google Drive Apps Script webhook one at a time. This bypasses Vercel's 4.5MB serverless body limit, so images of any size work. Apps Script creates a user-named subfolder in `Listing_images` and saves files there.
 
-**Portfolio pipeline**: Backend scans `PORTFOLIO_PATH/{category_folder}/` for files containing "before"/"after" in the filename → pairs them by room name → serves via `/portfolio-images` static mount.
+**Portfolio pipeline**: Backend scans `PORTFOLIO_PATH/{category_folder}/` for files containing "before"/"after" in the filename → pairs them by room name → serves via `/portfolio-images` static mount. On Vercel (no local path), returns empty.
 
 ### Google Integrations (Two Separate Apps Scripts)
 
@@ -86,22 +117,22 @@ taskkill //F //IM python3.11.exe
 
 These are independent scripts — do NOT modify one when intending to change the other.
 
-## Environment Variables (`backend/.env`)
+## Environment Variables
 
-Required: `SECRET_KEY`, `PORTFOLIO_PATH`, `UPLOAD_PATH`, `SUBMISSION_PATH`, `GSHEET_WEBHOOK_URL`, `GDRIVE_WEBHOOK_URL`
-Optional (dev graceful): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`
+Set these in the **Vercel dashboard** (Settings → Environment Variables) for production, or in a `.env` file locally:
+
+**Required**: `SECRET_KEY`, `GSHEET_WEBHOOK_URL`, `GDRIVE_WEBHOOK_URL`
+**Optional**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `PORTFOLIO_PATH`, `SUBMISSION_PATH`, `PRODUCTION_URL`
+
+Vercel auto-sets `VERCEL=1` — the backend uses this to detect serverless mode and switch to `/tmp/` for SQLite.
 
 ## Critical Gotchas
 
-- **Env vars must be loaded inside functions**, not at module level — uvicorn `--reload` causes empty reads on module-level `os.getenv()`
-- **Env loading uses absolute path**: `load_dotenv(Path(__file__).parent.parent / ".env")` in service files
-- **All print statements must use `flush=True`** for immediate log visibility with uvicorn
+- **Images upload directly from browser to Google Drive** — they never pass through the Vercel serverless function, so there is no file size limit from Vercel's 4.5MB body restriction
+- **`_` prefix on api/ files is required** — without it, Vercel exposes them as separate serverless function endpoints
+- **Vercel filesystem is read-only** except `/tmp/` — SQLite DB is ephemeral on Vercel (user auth resets on cold starts; real data persists via Google Sheets/Drive)
 - **Tailwind v4 `bg-clip-text`** requires inline `WebkitBackgroundClip: 'text'` and `WebkitTextFillColor: 'transparent'` styles (see Hero.jsx)
-- **Portfolio source images** live outside the repo at `C:\Users\ravit\Desktop\Staging\Application` with subfolders: `empty room to Staged/`, `traditionaly staged to virtually staged/`, `renovated room_area/`
-
-## Spec-Kit Workflow
-
-This project uses GitHub Spec Kit for spec-driven development. Artifacts live in `specs/humancurated-virtual-staging/` (spec.md, plan.md, tasks.md, constitution.md, clarifications.md). Slash commands available: `/speckit.specify`, `/speckit.plan`, `/speckit.tasks`, `/speckit.implement`, `/speckit.analyze`, `/speckit.clarify`, `/speckit.checklist`, `/speckit.constitution`, `/speckit.taskstoissues`.
+- **All print statements use `flush=True`** for immediate log visibility
 
 ## Company Info
 
