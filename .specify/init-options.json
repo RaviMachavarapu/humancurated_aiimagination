@@ -1,0 +1,8 @@
+{
+  "ai_assistant": "claude",
+  "script_type": "sh",
+  "project_name": "Humancurated_AIdesign",
+  "no_git": false,
+  "version": "v0.4.0",
+  "initialized_at": "2026-03-24"
+}
